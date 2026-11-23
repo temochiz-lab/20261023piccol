@@ -22,9 +22,9 @@
           <p class="intro-copy">画像を読み込んで、切り抜きたい範囲を選びます。</p>
         </div>
 
-        <label class="upload-button" for="file-input"><span class="upload-icon">＋</span><span>画像を選ぶ</span><span class="shortcut">Ctrl O</span></label>
+        <div class="input-actions"><label class="upload-button" for="file-input"><span class="upload-icon">＋</span><span>画像を選ぶ</span><span class="shortcut">Ctrl O</span></label><button id="empty-paste" class="paste-button">クリップボードから貼り付け</button></div>
         <input id="file-input" type="file" accept="image/*" hidden>
-        <p class="drop-hint">画像をここへドラッグ、または<br><kbd>Ctrl</kbd> <span class="key-plus">+</span> <kbd>V</kbd> で貼り付け</p>
+        <p class="drop-hint">または画像を編集エリアへドラッグ</p>
 
         <div class="control-group">
           <div class="section-label"><span>切り抜きの形</span><span class="step-number">01</span></div>
@@ -33,6 +33,7 @@
             <button class="shape-button" data-shape="circle" aria-pressed="false"><span class="shape-icon circle-icon"></span>円</button>
           </div>
         </div>
+        <p class="selection-help" id="selection-help">画像上をドラッグして範囲を選択。選択範囲の中をドラッグすると移動、四隅をドラッグするとサイズを調整できます。</p>
 
         <div class="control-group zoom-group">
           <div class="section-label"><span>画像の表示サイズ</span><span class="step-number">02</span></div>
@@ -41,19 +42,24 @@
           <div class="zoom-actions"><button id="zoom-out" aria-label="縮小">−</button><button id="fit-button">全体を表示</button><button id="zoom-in" aria-label="拡大">＋</button></div>
         </div>
 
+        <div class="output-group">
+          <div class="section-label"><span>書き出し</span><span class="step-number">03</span></div>
+          <div class="output-actions"><button id="copy-button" class="secondary-button" disabled><span class="copy-icon">▢</span>クリップボードにコピー</button><button id="download-button" class="primary-button" disabled>PNGを書き出す<span class="arrow">↗</span></button></div>
+          <p class="selection-summary" id="selection-summary">切り抜き範囲を選択してください</p>
+        </div>
+
         <div class="sidebar-bottom"><span class="privacy-dot"></span>画像はこのブラウザ内で処理されます</div>
       </aside>
 
       <section class="editor" aria-label="画像編集エリア">
         <div class="editor-toolbar">
           <div class="toolbar-left"><span class="live-dot"></span><span id="image-status">画像を読み込んでください</span></div>
-          <span class="toolbar-tip" id="selection-tip">ドラッグして範囲を選択</span>
         </div>
         <div class="canvas-viewport" id="drop-zone">
           <div class="empty-state" id="empty-state">
             <div class="empty-art" aria-hidden="true"><span class="art-sun"></span><span class="art-hill hill-one"></span><span class="art-hill hill-two"></span><span class="art-frame"></span></div>
             <h2>画像をここにドロップ</h2>
-            <p>または <button id="empty-paste">クリップボードから貼り付け</button></p>
+            <p><kbd>Ctrl</kbd> <span class="key-plus">+</span> <kbd>V</kbd> で貼り付け</p>
             <span class="file-types">JPG · PNG · WEBP など</span>
           </div>
           <canvas id="image-canvas" aria-label="切り抜く範囲を選択する画像"></canvas>
@@ -63,10 +69,6 @@
       </section>
     </section>
 
-    <footer class="actionbar">
-      <div class="selection-summary"><span class="summary-icon">⌗</span><span id="selection-summary">切り抜き範囲を選択してください</span></div>
-      <div class="action-buttons"><button id="back-button" class="secondary-button" hidden>範囲を選び直す</button><button id="place-button" class="secondary-button" disabled>切り抜きを配置</button><button id="copy-button" class="secondary-button" disabled><span class="copy-icon">▢</span>コピー</button><button id="download-button" class="primary-button" disabled>PNGを書き出す<span class="arrow">↗</span></button></div>
-    </footer>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
   <script src="app.js"></script>

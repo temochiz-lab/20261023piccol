@@ -6,8 +6,6 @@ const slider = document.querySelector('#zoom-slider');
 const zoomValue = document.querySelector('#zoom-value');
 const downloadButton = document.querySelector('#download-button');
 const copyButton = document.querySelector('#copy-button');
-const placeButton = document.querySelector('#place-button');
-const backButton = document.querySelector('#back-button');
 const toast = document.querySelector('#toast');
 
 let image = null;
@@ -16,11 +14,11 @@ let zoom = 1;
 let fitZoom = 1;
 let shape = 'rect';
 let selection = null;
-let placedCrop = null;
-let mode = 'select';
 let dragging = false;
 let dragStart = null;
 let dragType = null;
+let dragOriginSelection = null;
+let resizeAnchor = null;
 let toastTimer;
 
 function notify(message) {
@@ -59,15 +57,9 @@ function loadImage(blob, name) {
     image = nextImage;
     imageName = (name || 'piccol').replace(/\.[^.]+$/, '') || 'piccol';
     selection = null;
-    placedCrop = null;
-    mode = 'select';
-    placeButton.hidden = false;
-    backButton.hidden = true;
-    viewport.classList.remove('placing-crop');
     document.querySelector('#empty-state').hidden = true;
     viewport.classList.add('has-image');
     document.querySelector('#image-status').textContent = name || 'クリップボードの画像';
-    document.querySelector('#selection-tip').textContent = 'ドラッグして範囲を選択';
     fitImage();
     updateSelection();
   };
@@ -90,25 +82,6 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(image, 0, 0, width, height);
-  if (mode === 'place' && placedCrop) {
-    const x = placedCrop.x * zoom;
-    const y = placedCrop.y * zoom;
-    const w = placedCrop.width * zoom;
-    const h = placedCrop.height * zoom;
-    ctx.drawImage(placedCrop.canvas, x, y, w, h);
-    ctx.save();
-    ctx.strokeStyle = '#e4f879';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(x, y, w, h);
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#e4f879';
-    ctx.beginPath();
-    ctx.arc(x + w, y + h, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    return;
-  }
   if (!selection) return;
 
   const x = selection.x * zoom;
@@ -136,6 +109,13 @@ function draw() {
     ctx.rect(x, y, w, h);
   }
   ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#e4f879';
+  for (const handle of selectionHandles(selection)) {
+    ctx.beginPath();
+    ctx.arc(handle.x * zoom, handle.y * zoom, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -147,45 +127,13 @@ function canvasPoint(event) {
   };
 }
 
-function enterPlacement() {
-  if (!selection || !image) return;
-  placedCrop = {
-    canvas: renderCrop(),
-    x: selection.x,
-    y: selection.y,
-    width: selection.width,
-    height: selection.height
-  };
-  mode = 'place';
-  placeButton.hidden = true;
-  backButton.hidden = false;
-  viewport.classList.add('placing-crop');
-  document.querySelector('#selection-tip').textContent = '切り抜きをドラッグして移動・右下のハンドルで拡大縮小';
-  document.querySelector('#selection-summary').textContent = '切り抜きを配置中 · PNGには画像全体を書き出します';
-  document.querySelector('#dimensions-label').textContent = '切り抜きの位置とサイズを調整できます';
-  draw();
-}
-
-function returnToSelection() {
-  mode = 'select';
-  placedCrop = null;
-  placeButton.hidden = false;
-  backButton.hidden = true;
-  viewport.classList.remove('placing-crop');
-  document.querySelector('#selection-tip').textContent = 'ドラッグして範囲を選択';
-  updateSelection();
-  draw();
-}
-
-function renderOutput() {
-  if (mode !== 'place' || !placedCrop) return renderCrop();
-  const output = document.createElement('canvas');
-  output.width = image.naturalWidth;
-  output.height = image.naturalHeight;
-  const outputContext = output.getContext('2d');
-  outputContext.drawImage(image, 0, 0);
-  outputContext.drawImage(placedCrop.canvas, placedCrop.x, placedCrop.y, placedCrop.width, placedCrop.height);
-  return output;
+function selectionHandles(box) {
+  return [
+    { x: box.x, y: box.y, corner: 'top-left' },
+    { x: box.x + box.width, y: box.y, corner: 'top-right' },
+    { x: box.x, y: box.y + box.height, corner: 'bottom-left' },
+    { x: box.x + box.width, y: box.y + box.height, corner: 'bottom-right' }
+  ];
 }
 
 function makeSelection(start, end) {
@@ -206,9 +154,8 @@ function makeSelection(start, end) {
 
 function updateSelection() {
   const valid = selection && selection.width >= 1 && selection.height >= 1;
-  downloadButton.disabled = mode === 'place' ? !placedCrop : !valid;
-  copyButton.disabled = mode === 'place' ? !placedCrop : !valid;
-  placeButton.disabled = !valid;
+  downloadButton.disabled = !valid;
+  copyButton.disabled = !valid;
   if (!valid) {
     document.querySelector('#dimensions-label').textContent = '範囲を選ぶとサイズが表示されます';
     document.querySelector('#selection-summary').textContent = '切り抜き範囲を選択してください';
@@ -242,26 +189,27 @@ function canvasBlob(source) {
 
 canvas.addEventListener('pointerdown', event => {
   if (!image) return;
-  if (mode === 'place' && placedCrop) {
-    const point = canvasPoint(event);
-    const right = placedCrop.x + placedCrop.width;
-    const bottom = placedCrop.y + placedCrop.height;
-    if (Math.hypot(point.x - right, point.y - bottom) <= 14 / zoom) {
-      dragType = 'resize';
-    } else if (point.x >= placedCrop.x && point.x <= right && point.y >= placedCrop.y && point.y <= bottom) {
-      dragType = 'move';
-    } else {
-      return;
-    }
-    dragging = true;
-    dragStart = point;
-    canvas.setPointerCapture(event.pointerId);
-    return;
+  const point = canvasPoint(event);
+  const selectedHandle = selection && selectionHandles(selection).find(handle => Math.hypot(point.x - handle.x, point.y - handle.y) <= 12 / zoom);
+  const insideSelection = selection && point.x >= selection.x && point.x <= selection.x + selection.width && point.y >= selection.y && point.y <= selection.y + selection.height;
+  if (selectedHandle) {
+    dragType = 'resize';
+    const opposite = {
+      'top-left': { x: selection.x + selection.width, y: selection.y + selection.height },
+      'top-right': { x: selection.x, y: selection.y + selection.height },
+      'bottom-left': { x: selection.x + selection.width, y: selection.y },
+      'bottom-right': { x: selection.x, y: selection.y }
+    };
+    resizeAnchor = opposite[selectedHandle.corner];
+  } else if (insideSelection) {
+    dragType = 'move';
+  } else {
+    dragType = 'select';
   }
   dragging = true;
-  dragType = 'select';
-  dragStart = canvasPoint(event);
-  selection = makeSelection(dragStart, dragStart);
+  dragStart = point;
+  dragOriginSelection = selection ? { ...selection } : null;
+  if (dragType === 'select') selection = makeSelection(dragStart, dragStart);
   canvas.setPointerCapture(event.pointerId);
   draw();
   updateSelection();
@@ -269,41 +217,36 @@ canvas.addEventListener('pointerdown', event => {
 canvas.addEventListener('pointermove', event => {
   if (!dragging) return;
   const point = canvasPoint(event);
-  if (mode === 'place' && placedCrop) {
-    const deltaX = point.x - dragStart.x;
-    const deltaY = point.y - dragStart.y;
-    if (dragType === 'move') {
-      placedCrop.x = Math.max(0, Math.min(image.naturalWidth - placedCrop.width, placedCrop.x + deltaX));
-      placedCrop.y = Math.max(0, Math.min(image.naturalHeight - placedCrop.height, placedCrop.y + deltaY));
-    } else {
-      const scale = Math.max(0.1, (placedCrop.width + deltaX) / placedCrop.width);
-      const nextWidth = Math.min(image.naturalWidth - placedCrop.x, placedCrop.width * scale);
-      const nextHeight = Math.min(image.naturalHeight - placedCrop.y, placedCrop.height * scale);
-      const actualScale = Math.min(nextWidth / placedCrop.width, nextHeight / placedCrop.height);
-      placedCrop.width *= actualScale;
-      placedCrop.height *= actualScale;
-    }
-    dragStart = point;
-    draw();
-    document.querySelector('#selection-summary').textContent = `配置中 · ${Math.round(placedCrop.width)} × ${Math.round(placedCrop.height)} px`;
-    return;
+  if (dragType === 'move' && dragOriginSelection) {
+    selection = {
+      ...dragOriginSelection,
+      x: Math.max(0, Math.min(image.naturalWidth - dragOriginSelection.width, dragOriginSelection.x + point.x - dragStart.x)),
+      y: Math.max(0, Math.min(image.naturalHeight - dragOriginSelection.height, dragOriginSelection.y + point.y - dragStart.y))
+    };
+  } else if (dragType === 'resize' && resizeAnchor) {
+    selection = makeSelection(resizeAnchor, point);
+  } else {
+    selection = makeSelection(dragStart, point);
   }
-  selection = makeSelection(dragStart, canvasPoint(event));
   draw();
   updateSelection();
 });
 canvas.addEventListener('pointerup', event => {
   if (!dragging) return;
   dragging = false;
-  if (mode === 'place') {
-    draw();
-    return;
-  }
-  selection = makeSelection(dragStart, canvasPoint(event));
+  selection = dragType === 'move' ? selection : (dragType === 'resize' ? makeSelection(resizeAnchor, canvasPoint(event)) : makeSelection(dragStart, canvasPoint(event)));
+  dragType = null;
+  resizeAnchor = null;
+  dragOriginSelection = null;
   draw();
   updateSelection();
 });
-canvas.addEventListener('pointercancel', () => { dragging = false; });
+canvas.addEventListener('pointercancel', () => {
+  dragging = false;
+  dragType = null;
+  resizeAnchor = null;
+  dragOriginSelection = null;
+});
 
 fileInput.addEventListener('change', () => {
   const file = fileInput.files[0];
@@ -346,8 +289,6 @@ document.querySelector('#empty-paste').addEventListener('click', async () => {
     notify('貼り付けできません。画像をコピーして ⌘/Ctrl + V をお試しください');
   }
 });
-placeButton.addEventListener('click', enterPlacement);
-backButton.addEventListener('click', returnToSelection);
 window.addEventListener('paste', event => {
   const item = [...(event.clipboardData?.items || [])].find(entry => entry.type.startsWith('image/'));
   if (!item) return;
@@ -374,7 +315,7 @@ document.addEventListener('drop', event => event.preventDefault());
 downloadButton.addEventListener('click', async () => {
   if (!selection) return;
   try {
-    const blob = await canvasBlob(renderOutput());
+    const blob = await canvasBlob(renderCrop());
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${imageName}-crop.png`;
@@ -388,7 +329,7 @@ downloadButton.addEventListener('click', async () => {
 copyButton.addEventListener('click', async () => {
   if (!selection) return;
   try {
-    const blob = await canvasBlob(renderOutput());
+    const blob = await canvasBlob(renderCrop());
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     notify('PNGをクリップボードにコピーしました');
   } catch {
